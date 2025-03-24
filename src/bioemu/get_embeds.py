@@ -12,8 +12,6 @@ from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 
-from bioemu.utils import _conda_not_installed_errmsg, get_conda_prefix
-
 StrPath = str | os.PathLike
 
 
@@ -47,19 +45,13 @@ def write_fasta(seqs: list[str], fasta_file: StrPath, ids: list[str] | None = No
         SeqIO.write(seq_records, fasta_handle, format="fasta")
 
 
-def _get_colabfold_envname() -> str:
-    """Returns conda environment name of patched colabfold package"""
-    return os.getenv("COLABFOLD_ENVNAME", "colabfold-bioemu")
-
-
 def _get_colabfold_dir() -> StrPath:
     """
     Get colabfold environment folder
     """
-    colabfold_envname = _get_colabfold_envname()
-    conda_prefix = get_conda_prefix()
-    assert conda_prefix is not None, _conda_not_installed_errmsg
-    return os.path.join(conda_prefix, "envs", colabfold_envname)
+    return os.environ.get(
+        "BIOEMU_COLABFOLD_DIR", os.path.join(os.path.expanduser("~"), ".bioemu_colabfold")
+    )
 
 
 def ensure_colabfold_install() -> str:
@@ -76,14 +68,14 @@ def ensure_colabfold_install() -> str:
         assert os.path.exists(colabfold_patched_file), "Colabfold not patched!"
     else:
         logger.info(f"Colabfold not present under {colabfold_dir}. Installing...")
-        _install = subprocess.run(
-            ["bash", COLABFOLD_INSTALL_SCRIPT, _get_colabfold_envname(), get_conda_prefix()],
+        result = subprocess.run(
+            ["bash", COLABFOLD_INSTALL_SCRIPT, _get_colabfold_dir()],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
         )
         assert (
-            _install.returncode == 0
-        ), f"Something went wrong during colabfold install: {_install.stdout.decode()}"
+            result.returncode == 0
+        ), f"Something went wrong during colabfold install: {result.stdout.decode()}"
     return colabfold_bin_dir
 
 
