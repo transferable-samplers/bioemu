@@ -22,7 +22,7 @@ from .convert_chemgraph import save_pdb_and_xtc
 from .get_embeds import get_colabfold_embeds
 from .models import DiGConditionalScoreModel
 from .sde_lib import SDE
-from .seq_io import parse_sequence, write_fasta
+from .seq_io import check_protein_valid, parse_sequence, write_fasta
 from .utils import (
     count_samples_in_output_dir,
     format_npz_samples_filename,
@@ -107,6 +107,7 @@ def main(
         msa_host_url: MSA server URL. If not set, this defaults to colabfold's remote server. If sequence is an a3m file, this is ignored.
         filter_samples: Filter out unphysical samples with e.g. long bond distances or steric clashes.
     """
+
     output_dir = Path(output_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)  # Fail fast if output_dir is non-writeable
 
@@ -131,6 +132,9 @@ def main(
 
     # Parse FASTA or A3M file if sequence is a file path. Extract the actual sequence.
     sequence = parse_sequence(sequence)
+
+    # Check input sequence is valid
+    check_protein_valid(sequence)
 
     fasta_path = output_dir / "sequence.fasta"
     if fasta_path.is_file():
