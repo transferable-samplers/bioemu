@@ -130,7 +130,6 @@ def run_one_md(
 
     Args:
         frame: mdtraj trajectory object containing molecular coordinates and topology
-        max_iter_energy_min: maximum number of iterations for energy minimization
         only_energy_minimization: only call local energy minimizer, no integration
         simtime_ns_nvt_equil: simulation time (ns) for NVT equilibration
         simtime_ns_npt_equil: simulation time (ns) for NPT equilibration
