@@ -21,7 +21,7 @@ pip install -e '.[md]'
 sbatch scripts/sample_all.sh
 ```
 
-## Sidechain relaxation
+## Sidechain Packing + Relaxation
 
 Two scripts are provided for the 1e4 and 1e6 energy evaluation budgets employed in [*Amortized Sampling with Transferable Normalizing Flows*](https://arxiv.org/abs/2508.18175).
 
