@@ -1,13 +1,3 @@
-
-<h1>
-<p align="center">
-    <img src="assets/emu.png" alt="BioEmu logo" width="300"/>
-</p>
-</h1>
-
-[![DOI:10.1101/2024.12.05.626885](https://zenodo.org/badge/DOI/10.1101/2024.12.05.626885.svg)](https://doi.org/10.1101/2024.12.05.626885)
-[![Requires Python 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg?logo=python&logoColor=white)](https://python.org/downloads)
-
 # BioEmu ManyPeptidesMD Baseline
 
 This fork contains an adaptation of the BioEmu codebase for sampling the [*ManyPeptidesMD*](https://huggingface.co/datasets/transferable-samplers/many-peptides-md) evaluation dataset released in [*Amortized Sampling with Transferable Normalizing Flows*](https://arxiv.org/abs/2508.18175).
@@ -41,6 +31,15 @@ In `scripts/sidechain_relax_all_1e6.sh` sidechain packing, energy minimization a
 The energy evaluation budget is applied lazily.
 
 A npy file is saved containing the output samples subject to the energy evaluation budget.
+
+<h1>
+<p align="center">
+    <img src="assets/emu.png" alt="BioEmu logo" width="300"/>
+</p>
+</h1>
+
+[![DOI:10.1101/2024.12.05.626885](https://zenodo.org/badge/DOI/10.1101/2024.12.05.626885.svg)](https://doi.org/10.1101/2024.12.05.626885)
+[![Requires Python 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg?logo=python&logoColor=white)](https://python.org/downloads)
 
 # Biomolecular Emulator (BioEmu)
 
