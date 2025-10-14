@@ -8,6 +8,37 @@
 [![DOI:10.1101/2024.12.05.626885](https://zenodo.org/badge/DOI/10.1101/2024.12.05.626885.svg)](https://doi.org/10.1101/2024.12.05.626885)
 [![Requires Python 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg?logo=python&logoColor=white)](https://python.org/downloads)
 
+# BioEmu ManyPeptidesMD Baseline
+
+This fork contains an adaptation of the BioEmu codebase for sampling the ManyPeptidesMD evaluation dataset.
+
+The main changes are:
+- Modifiying the forcefield to match that used in ManyPeptidesMD.
+- Modification of default settings to use suitable numbers of energy evaluations for comparison.
+
+## Installation
+
+```bash
+git clone https://github.com/transferable-samplers/bioemu.git
+cd bioemu
+pip install -e .
+pip install -e '.[md]'
+```
+
+## Sampling
+
+```bash
+sbatch scripts/sample_all.sh
+```
+
+## Sidechains + relaxation
+
+Two scripts are provided for the 1e4 and 1e6 energy evaluation budgets employed in "Amortized Sampling with Transferable Normalizing Flows".
+
+In `scripts/sidechain_relax_all_1e4.sh` sidechain packing is performed and only energy minimization.
+In `scripts/sidechain_relax_all_1e6.sh` sidechain packing, energy minimization and a short initialization relaxation is performed.
+
+The energy evaluation budget is applied lazily.
 
 # Biomolecular Emulator (BioEmu)
 
