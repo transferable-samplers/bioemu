@@ -1,16 +1,14 @@
 #!/bin/bash
-#SBATCH --job-name=bioemu_sample
+#SBATCH --job-name=bioemu_relax_1e4
 #SBATCH -o watch_folder/%x_%j.out     # output file (%j expands to jobID)
 #SBATCH --get-user-env                # retrieve the users login environment
-#SBATCH --partition=long,main
+#SBATCH --partition=main-cpu,long-cpu
 #SBATCH -t 12:00:00
-#SBATCH -c 4
-#SBATCH --mem=24G
+#SBATCH -c 1
+#SBATCH --mem=8G
 #SBATCH --array=0-91
 #SBATCH --output=logs/%x_%A_%a.out
 #SBATCH --error=logs/%x_%A_%a.err
-
-# YOU MAY NEED TO export BIOEMU_COLABFOLD_DIR=/home/mila/t/tanc/bioemu/colabfold
 
 sequences=(
     AA
@@ -111,8 +109,9 @@ sequences=(
 idx="${SLURM_ARRAY_TASK_ID}"
 sequence="${sequences[$idx]}"
 
-python -m bioemu.sample \
-    --sequence $sequence \
-    --num_samples 100 \
-    --output_dir "/network/scratch/t/tanc/bioemu_100/$sequence" \
-    --filter_samples=False
+python -m bioemu.sidechain_relax \
+    --input-dir "/network/scratch/t/tanc/bioemu_100/$sequence" \
+    --output-subdir "minimize_only" \
+    --energy-eval-budget 10_000 \
+    --md-protocol local_minimization \
+    --reference-pdb-path="/network/scratch/t/tanc/transferable-samplers/many-peptides-md/pdbs/test/${sequence}.pdb"

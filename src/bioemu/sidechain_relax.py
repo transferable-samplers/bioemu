@@ -117,7 +117,6 @@ def reconstruct_sidechains(traj: mdtraj.Trajectory) -> mdtraj.Trajectory:
 
 def run_one_md(
     frame: mdtraj.Trajectory,
-    max_iter_energy_min: int = 1000,
     only_energy_minimization: bool = False,
     simtime_ns_nvt_equil: float = 0.0, # changed default from 0.1 to 0.0
     simtime_ns_npt_equil: float = 0.0, # changed default from 0.4 to 0.0
@@ -183,7 +182,7 @@ def run_one_md(
 
     logger.debug("running local energy minimization")
     # replaced with custom function that returns number of energy evaluations
-    minimization_steps = minimize_with_counter(simulation, maxiter=max_iter_energy_min)
+    minimization_steps = minimize_with_counter(simulation)
 
     logging.info(f"minimization steps: {minimization_steps}")
 
@@ -231,7 +230,6 @@ def run_all_md(
     md_protocol: MDProtocol,
     outpath: str,
     simtime_ns: float,
-    max_iter_energy_min: int,
     energy_eval_budget: int = 10000,
 ) -> mdtraj.Trajectory:
     """run MD for set of samples.
@@ -244,7 +242,6 @@ def run_all_md(
         md_protocol: md protocol
         outpath: path to write output to
         simtime_ns: simulation time (ns) for free MD simulation
-        max_iter_energy_min: maximum number of iterations for energy minimization
         energy_eval_budget: maximum number of energy evaluations to use in total (lazy stopping criterion)
 
     Returns:
@@ -260,7 +257,6 @@ def run_all_md(
         try:
             equil_frame, energy_evals = run_one_md(
                 frame,
-                max_iter_energy_min=max_iter_energy_min,
                 only_energy_minimization=md_protocol == MDProtocol.LOCAL_MINIMIZATION,
                 simtime_ns=simtime_ns,
                 outpath=outpath,
@@ -287,24 +283,21 @@ def run_all_md(
 
 @typer_app.command()
 def main(
-    sequence: str = None,
     input_dir: str = None,
     output_subdir: str = "relaxed",
-    parallel_idx: int = None,
-    num_per_parallel: int = 1,
     energy_eval_budget: int = 10000,
     md_equil: bool = True,
     md_protocol: MDProtocol = MDProtocol.MD_EQUIL,
     simtime_ns: float = 0,
     verbose: bool = False,
     reference_pdb_path: str = None,
-    max_iter_energy_min: int = 1000
 ) -> None:
     """reconstruct side-chains for samples and relax with MD
 
     Args:
-        xtc_path: path to xtc-file containing samples
-        pdb_path: path to pdb-file containing topology
+        input_dir: path to directory containing samples.xtc and topology.pdb
+        output_subdir: subdirectory in input_dir to write output to
+        energy_eval_budget: maximum number of energy evaluations to use in total for MD equilibration
         md_equil: run MD equilibration specified in md_protocol. If False, only reconstruct side-chains.
         md_protocol: MD protocol. Currently supported:
             * local_minimization: Runs only a local energy minimizer on the structure. Fast but only resolves
@@ -312,9 +305,8 @@ def main(
             * md_equil: Runs local energy minimizer followed by a short constrained MD equilibration. Slower
                 but might resolve more severe issues.
         simtime_ns: runtime (ns) for unconstrained MD simulation
-        outpath: path to write output to
-        prefix: prefix for output file names
         verbose: if True, set log level to DEBUG
+        reference_pdb_path: if given, reorder output coordinates to match reference PDB
     """
 
     xtc_path = f"{input_dir}/samples.xtc"
@@ -334,46 +326,51 @@ def main(
 
     samples = mdtraj.load_xtc(xtc_path, top=pdb_path)
 
-    if parallel_idx is not None:
-        samples = samples[parallel_idx * num_per_parallel : (parallel_idx + 1) * num_per_parallel]
-        tag = f"_parallel{parallel_idx}"
+    samples_with_sidechains_xtc_path = os.path.join(output_dir, "sidechain_rec.xtc")
+    samples_with_sidechains_pdb_path = os.path.join(output_dir, "sidechain_rec.pdb")
+
+    if os.path.exists(samples_with_sidechains_xtc_path) and os.path.exists(samples_with_sidechains_pdb_path):
+        logger.info("Found existing side-chain reconstructed output. Skipping reconstruction.")
+        samples_with_sidechains = mdtraj.load_xtc(
+            samples_with_sidechains_xtc_path, top=samples_with_sidechains_pdb_path
+        )
     else:
-        tag = ""
+        logger.info("Reconstructing side-chains for samples.")
+        # reconstruct side-chains
+        samples_with_sidechains = reconstruct_sidechains(samples)
 
-    samples_with_sidechains = reconstruct_sidechains(samples)
-
-    # write out sidechain reconstructed output
-    samples_with_sidechains.save_xtc(os.path.join(output_dir, f"{sequence}_sidechain_rec{tag}.xtc"))
-    samples_with_sidechains[0].save_pdb(os.path.join(output_dir, f"{sequence}_sidechain_rec{tag}.pdb"))
-
-    outpath = os.path.join(output_dir, f"{sequence}_maxiter{max_iter_energy_min}")
-
-    os.makedirs(outpath, exist_ok=True)
+        # write out sidechain reconstructed output
+        samples_with_sidechains.save_xtc(samples_with_sidechains_xtc_path)
+        samples_with_sidechains[0].save_pdb(samples_with_sidechains_pdb_path)
 
     # run MD equilibration if requested
     if md_equil:
         samples_equil = run_all_md(
-            samples_with_sidechains, md_protocol, simtime_ns=simtime_ns, outpath=outpath, max_iter_energy_min=max_iter_energy_min, energy_eval_budget=energy_eval_budget
+            samples_with_sidechains, md_protocol, simtime_ns=simtime_ns, outpath=output_dir, energy_eval_budget=energy_eval_budget
         )
 
-        samples_equil.save_xtc(os.path.join(outpath, f"{sequence}_md_equil_{tag}.xtc"))
-        samples_equil[0].save_pdb(os.path.join(outpath, f"{sequence}_md_equil_{tag}.pdb"))
+        md_equil_xtc_path = os.path.join(output_dir, "md_equil.xtc")
+        md_equil_pdb_path = os.path.join(output_dir, "md_equil.pdb")
+        md_equil_npy_path = os.path.join(output_dir, "md_equil.npy")
+
+        samples_equil.save_xtc(md_equil_xtc_path)
+        samples_equil[0].save_pdb(md_equil_pdb_path)
 
         samples_npy = samples_equil.xyz
 
         if reference_pdb_path is not None:
             check_atom_match(
                 reference_pdb_path,
-                os.path.join(outpath, f"{sequence}_md_equil_{tag}.pdb"),
+                md_equil_pdb_path,
             )
 
             samples_npy = reorder_coordinates(
                 reference_pdb_path,
-                os.path.join(outpath, f"{sequence}_md_equil_{tag}.pdb"),
+                md_equil_pdb_path,
                 samples_npy,
             )
 
-        np.save(os.path.join(outpath, f"{sequence}_md_equil_{tag}.npy"), samples_npy)
+        np.save(md_equil_npy_path, samples_npy)
 
     if verbose:
         logger.setLevel(original_loglevel)
