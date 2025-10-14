@@ -75,16 +75,14 @@ def _is_protein_noh(atom: app.topology.Atom) -> bool:
     return True
 
 
-def _prepare_system(
-    frame: mdtraj.Trajectory, padding_nm: float = 1.0
-) -> tuple[mm.System, app.Modeller]:
-    """prepare opeMM system from mdtraj Trajectory frame.
+def _prepare_system(frame: mdtraj.Trajectory) -> tuple[mm.System, app.Modeller]:
+    """NOTE: modified energy function to match that used in ManyPeptidesMD
+    prepare openMM system from mdtraj Trajectory frame.
 
-    Function uses amber99sb and standard settings for MD.
+    Function uses amber14 force field with implicit solvent
 
     Args:
         frame: mdtraj Trajectory with one frame
-        padding_nm: padding between protein and periodic box.
 
     Returns:
         openMM system, openMM modeller
@@ -94,22 +92,13 @@ def _prepare_system(
     modeller = app.Modeller(topology, positions)
     modeller.addHydrogens()
 
-    forcefield = app.ForceField("amber99sb.xml", "tip3p.xml")
-
-    modeller.addSolvent(
-        forcefield,
-        padding=padding_nm * u.nanometers,
-        ionicStrength=0.1 * u.molar,
-        positiveIon="Na+",
-        negativeIon="Cl-",
-    )
+    forcefield = app.ForceField("amber14-all.xml", "implicit/obc1.xml")
 
     system = forcefield.createSystem(
         modeller.topology,
-        nonbondedMethod=app.PME,
-        nonbondedCutoff=1.0 * u.nanometers,
-        constraints=app.HBonds,
-        rigidWater=True,
+        nonbondedMethod=app.CutoffNonPeriodic,
+        nonbondedCutoff=2.0 * u.nanometers,
+        constraints=None,
     )
     return system, modeller
 
@@ -144,6 +133,7 @@ def _do_equilibration(
     simulation: app.Simulation,
     integrator: mm.Integrator,
     init_timesteps_ps: list[float],
+    init_time_ps: float,
     integrator_timestep_ps: float,
     simtime_ns_nvt_equil: float,
     simtime_ns_npt_equil: float,
@@ -162,11 +152,17 @@ def _do_equilibration(
         simulation: openMM simulation
         integrator: openMM integrator
         init_timesteps_ps: timesteps to use sequentially during the first phase of equilibration.
+        init_time_ps: time to run for each of the init_timesteps_ps
         integrator_timestep_ps: final integrator timestep
         simtime_ns_nvt_equil: simulation time (ns) for NVT equilibration
         simtime_ns_npt_equil: simulation time (ns) for NPT equilibration
         temperature_K: system temperature in Kelvin
+
+    Returns:
+        total number of steps run
     """
+
+    total_steps = 0
     # start with tiny integrator steps and increase to target integrator step
     for init_int_ts_ps in tqdm(
         init_timesteps_ps + [integrator_timestep_ps],
@@ -175,15 +171,18 @@ def _do_equilibration(
     ):
         logger.debug(f"running with init integration step of {init_int_ts_ps} ps")
         integrator.setStepSize(init_int_ts_ps * u.picosecond)
-        # run for 0.1 ps
-        simulation.step(int(0.1 / init_int_ts_ps))
+        num_steps = int(init_time_ps / init_int_ts_ps)
+        total_steps += num_steps
+        simulation.step(num_steps)
 
     # NVT equilibration with higher than usual friction
     logger.debug(f"running {simtime_ns_nvt_equil} ns constrained MD equilibration (NVT)")
     simulation.integrator.setFriction(10.0 / u.picoseconds)
 
     for _ in tqdm(range(100), leave=False, desc=f"NVT equilibration ({simtime_ns_nvt_equil} ns)"):
-        simulation.step(int(1000 * simtime_ns_nvt_equil / integrator_timestep_ps / 100))
+        num_steps = int(1000 * simtime_ns_nvt_equil / integrator_timestep_ps / 100)
+        total_steps += num_steps
+        simulation.step(num_steps)
 
     # NPT equilibration with normal friction
     logger.debug(f"running {simtime_ns_npt_equil} ns constrained MD equilibration (NPT)")
@@ -192,8 +191,11 @@ def _do_equilibration(
     simulation.context.reinitialize(preserveState=True)
 
     for _ in tqdm(range(100), leave=False, desc=f"NPT equilibration ({simtime_ns_npt_equil} ns)"):
-        simulation.step(int(1000 * simtime_ns_npt_equil / integrator_timestep_ps / 100))
+        num_steps = int(1000 * simtime_ns_npt_equil / integrator_timestep_ps / 100)
+        total_steps += num_steps
+        simulation.step(num_steps)
 
+    return total_steps
 
 def _switch_off_constraints(
     simulation: app.Simulation, ext_force_id: int, integrator_timestep_ps: float, init_k: float

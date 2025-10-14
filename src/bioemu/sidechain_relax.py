@@ -27,6 +27,8 @@ from bioemu.md_utils import (
     _run_and_write,
     _switch_off_constraints,
 )
+from bioemu.energy_minimization import minimize_with_counter
+from bioemu.pdb_utils import check_atom_match, reorder_coordinates
 from bioemu.utils import get_conda_prefix
 
 logger = logging.getLogger(__name__)
@@ -115,19 +117,21 @@ def reconstruct_sidechains(traj: mdtraj.Trajectory) -> mdtraj.Trajectory:
 
 def run_one_md(
     frame: mdtraj.Trajectory,
+    max_iter_energy_min: int = 1000,
     only_energy_minimization: bool = False,
-    simtime_ns_nvt_equil: float = 0.1,
-    simtime_ns_npt_equil: float = 0.4,
+    simtime_ns_nvt_equil: float = 0.0, # changed default from 0.1 to 0.0
+    simtime_ns_npt_equil: float = 0.0, # changed default from 0.4 to 0.0
     simtime_ns: float = 0.0,
     outpath: str = ".",
     file_prefix: str = "",
 ) -> mdtraj.Trajectory:
-    """Run a standard MD protocol with amber99sb and explicit solvent (tip3p).
+    """Run a standard MD protocol with amber14 and implicit solvent (ocb1).
     Uses a constraint force on backbone atoms to avoid large deviations from
     predicted structure.
 
     Args:
         frame: mdtraj trajectory object containing molecular coordinates and topology
+        max_iter_energy_min: maximum number of iterations for energy minimization
         only_energy_minimization: only call local energy minimizer, no integration
         simtime_ns_nvt_equil: simulation time (ns) for NVT equilibration
         simtime_ns_npt_equil: simulation time (ns) for NPT equilibration
@@ -135,15 +139,19 @@ def run_one_md(
         outpath: path to write simulation output to (only used if simtime_ns > 0)
         file_prefix: prefix for simulation output (only used if simtime_ns > 0)
     Returns:
-        equilibrated trajectory (only heavy atoms of protein)
+        equilibrated trajectory (full system, all atoms)
+        total number of energy evaluations used
     """
 
     logger.debug("creating MD setup")
 
     # fixed settings for standard protocol
     integrator_timestep_ps = 0.001
+    # reduced 0.1 -> 0.01ps for each step size as otherwise 1e5 energy evaluations used
+    # probably ok as the sequences are much smaller than BioEmu was originally intended for
+    init_time_ps = 0.01
     init_timesteps_ps = [1e-6, 1e-5, 1e-4]
-    temperature_K = 300.0 * u.kelvin
+    temperature_K = 310.0 * u.kelvin
     constraint_force_const = 1000
 
     system, modeller = _prepare_system(frame)
@@ -174,18 +182,28 @@ def run_one_md(
     mdtop = mdtraj.Topology.from_openmm(modeller.topology)
 
     logger.debug("running local energy minimization")
-    simulation.minimizeEnergy()
+    # replaced with custom function that returns number of energy evaluations
+    minimization_steps = minimize_with_counter(simulation, maxiter=max_iter_energy_min)
+
+    logging.info(f"minimization steps: {minimization_steps}")
 
     if not only_energy_minimization:
-        _do_equilibration(
+        equilibiration_steps = _do_equilibration(
             simulation,
             integrator,
             init_timesteps_ps,
+            init_time_ps,
             integrator_timestep_ps,
             simtime_ns_nvt_equil,
             simtime_ns_npt_equil,
             temperature_K,
         )
+        logging.info(f"equilibration steps: {equilibiration_steps}")
+        total_steps = minimization_steps + equilibiration_steps
+    else:
+        total_steps = minimization_steps
+
+    logging.info(f"total steps: {total_steps}")
 
     # always return constrained equilibration output
     positions = simulation.context.getState(positions=True).getPositions()
@@ -205,11 +223,16 @@ def run_one_md(
         ).save_pdb(os.path.join(outpath, f"{file_prefix}_md_top.pdb"))
         _run_and_write(simulation, integrator_timestep_ps, simtime_ns, idx, outpath, file_prefix)
 
-    return mdtraj.Trajectory(np.array(positions.value_in_unit(u.nanometer))[idx], mdtop.subset(idx))
+    return mdtraj.Trajectory(np.array(positions.value_in_unit(u.nanometer)), mdtop), total_steps
 
 
 def run_all_md(
-    samples_all: list[mdtraj.Trajectory], md_protocol: MDProtocol, outpath: str, simtime_ns: float
+    samples_all: list[mdtraj.Trajectory],
+    md_protocol: MDProtocol,
+    outpath: str,
+    simtime_ns: float,
+    max_iter_energy_min: int,
+    energy_eval_budget: int = 10000,
 ) -> mdtraj.Trajectory:
     """run MD for set of samples.
 
@@ -219,27 +242,40 @@ def run_all_md(
     Args:
         samples_all: mdtraj objects with samples with side-chains reconstructed
         md_protocol: md protocol
+        outpath: path to write output to
+        simtime_ns: simulation time (ns) for free MD simulation
+        max_iter_energy_min: maximum number of iterations for energy minimization
+        energy_eval_budget: maximum number of energy evaluations to use in total (lazy stopping criterion)
 
     Returns:
-        array containing all heavy-atom coordinates
+        array containing full-atom equilibrated samples
     """
 
     equil_frames = []
+    total_energy_evals = 0
 
     for n, frame in tqdm(
         enumerate(samples_all), leave=False, desc="running MD equilibration", total=len(samples_all)
     ):
         try:
-            equil_frame = run_one_md(
+            equil_frame, energy_evals = run_one_md(
                 frame,
+                max_iter_energy_min=max_iter_energy_min,
                 only_energy_minimization=md_protocol == MDProtocol.LOCAL_MINIMIZATION,
                 simtime_ns=simtime_ns,
                 outpath=outpath,
                 file_prefix=f"frame{n}",
             )
+            total_energy_evals += energy_evals
             equil_frames.append(equil_frame)
         except ValueError as err:
             logger.warning(f"Skipping sample {n} for MD setup: Failed with\n {err}")
+
+        if total_energy_evals >= energy_eval_budget:
+            logger.info(
+                f"Reached energy evaluation budget of {energy_eval_budget}. Stopping MD setup."
+            )
+            break
 
     if not equil_frames:
         raise RuntimeError(
@@ -251,14 +287,18 @@ def run_all_md(
 
 @typer_app.command()
 def main(
-    xtc_path: str = typer.Option(),
-    pdb_path: str = typer.Option(),
+    sequence: str = None,
+    input_dir: str = None,
+    output_subdir: str = "relaxed",
+    parallel_idx: int = None,
+    num_per_parallel: int = 1,
+    energy_eval_budget: int = 10000,
     md_equil: bool = True,
-    md_protocol: MDProtocol = MDProtocol.LOCAL_MINIMIZATION,
+    md_protocol: MDProtocol = MDProtocol.MD_EQUIL,
     simtime_ns: float = 0,
-    outpath: str = ".",
-    prefix: str = "samples",
     verbose: bool = False,
+    reference_pdb_path: str = None,
+    max_iter_energy_min: int = 1000
 ) -> None:
     """reconstruct side-chains for samples and relax with MD
 
@@ -276,6 +316,13 @@ def main(
         prefix: prefix for output file names
         verbose: if True, set log level to DEBUG
     """
+
+    xtc_path = f"{input_dir}/samples.xtc"
+    pdb_path = f"{input_dir}/topology.pdb"
+
+    output_dir = f"{input_dir}/{output_subdir}"
+    os.makedirs(output_dir, exist_ok=True)
+
     if verbose:
         original_loglevel = logger.getEffectiveLevel()
         logger.setLevel(logging.DEBUG)
@@ -286,20 +333,47 @@ def main(
         ), "unconstrained MD can only be run using equilibrated structures."
 
     samples = mdtraj.load_xtc(xtc_path, top=pdb_path)
-    samples_all_heavy = reconstruct_sidechains(samples)
+
+    if parallel_idx is not None:
+        samples = samples[parallel_idx * num_per_parallel : (parallel_idx + 1) * num_per_parallel]
+        tag = f"_parallel{parallel_idx}"
+    else:
+        tag = ""
+
+    samples_with_sidechains = reconstruct_sidechains(samples)
 
     # write out sidechain reconstructed output
-    samples_all_heavy.save_xtc(os.path.join(outpath, f"{prefix}_sidechain_rec.xtc"))
-    samples_all_heavy[0].save_pdb(os.path.join(outpath, f"{prefix}_sidechain_rec.pdb"))
+    samples_with_sidechains.save_xtc(os.path.join(output_dir, f"{sequence}_sidechain_rec{tag}.xtc"))
+    samples_with_sidechains[0].save_pdb(os.path.join(output_dir, f"{sequence}_sidechain_rec{tag}.pdb"))
+
+    outpath = os.path.join(output_dir, f"{sequence}_maxiter{max_iter_energy_min}")
+
+    os.makedirs(outpath, exist_ok=True)
 
     # run MD equilibration if requested
     if md_equil:
         samples_equil = run_all_md(
-            samples_all_heavy, md_protocol, simtime_ns=simtime_ns, outpath=outpath
+            samples_with_sidechains, md_protocol, simtime_ns=simtime_ns, outpath=outpath, max_iter_energy_min=max_iter_energy_min, energy_eval_budget=energy_eval_budget
         )
 
-        samples_equil.save_xtc(os.path.join(outpath, f"{prefix}_md_equil.xtc"))
-        samples_equil[0].save_pdb(os.path.join(outpath, f"{prefix}_md_equil.pdb"))
+        samples_equil.save_xtc(os.path.join(outpath, f"{sequence}_md_equil_{tag}.xtc"))
+        samples_equil[0].save_pdb(os.path.join(outpath, f"{sequence}_md_equil_{tag}.pdb"))
+
+        samples_npy = samples_equil.xyz
+
+        if reference_pdb_path is not None:
+            check_atom_match(
+                reference_pdb_path,
+                os.path.join(outpath, f"{sequence}_md_equil_{tag}.pdb"),
+            )
+
+            samples_npy = reorder_coordinates(
+                reference_pdb_path,
+                os.path.join(outpath, f"{sequence}_md_equil_{tag}.pdb"),
+                samples_npy,
+            )
+
+        np.save(os.path.join(outpath, f"{sequence}_md_equil_{tag}.npy"), samples_npy)
 
     if verbose:
         logger.setLevel(original_loglevel)
