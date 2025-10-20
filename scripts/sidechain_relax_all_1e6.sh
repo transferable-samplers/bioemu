@@ -111,7 +111,7 @@ sequence="${sequences[$idx]}"
 
 python -m bioemu.sidechain_relax \
     --input-dir "/network/scratch/t/tanc/bioemu_100/$sequence" \
-    --output-subdir "init_equil_v3" \
+    --output-subdir "init_equil" \
     --energy-eval-budget 1_000_000 \
     --md-protocol md_equil \
     --reference-pdb-path="/network/scratch/t/tanc/transferable-samplers/many-peptides-md/pdbs/test/${sequence}.pdb"

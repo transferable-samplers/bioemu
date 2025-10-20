@@ -328,19 +328,21 @@ def main(
     samples_with_sidechains_xtc_path = os.path.join(output_dir, "sidechain_rec.xtc")
     samples_with_sidechains_pdb_path = os.path.join(output_dir, "sidechain_rec.pdb")
 
-    if os.path.exists(samples_with_sidechains_xtc_path) and os.path.exists(samples_with_sidechains_pdb_path):
-        logger.info("Found existing side-chain reconstructed output. Skipping reconstruction.")
-        samples_with_sidechains = mdtraj.load_xtc(
-            samples_with_sidechains_xtc_path, top=samples_with_sidechains_pdb_path
-        )
-    else:
-        logger.info("Reconstructing side-chains for samples.")
-        # reconstruct side-chains
-        samples_with_sidechains = reconstruct_sidechains(samples)
+    md_equil_xtc_path = os.path.join(output_dir, "md_equil.xtc")
+    md_equil_pdb_path = os.path.join(output_dir, "md_equil.pdb")
+    md_equil_npy_path = os.path.join(output_dir, "md_equil.npy")
 
-        # write out sidechain reconstructed output
-        samples_with_sidechains.save_xtc(samples_with_sidechains_xtc_path)
-        samples_with_sidechains[0].save_pdb(samples_with_sidechains_pdb_path)
+    if os.path.exists(md_equil_npy_path):
+        logger.info("Found existing MD equilibrated output. Skipping side-chain reconstruction and MD equilibration.")
+        return
+
+    logger.info("Reconstructing side-chains for samples.")
+    # reconstruct side-chains
+    samples_with_sidechains = reconstruct_sidechains(samples)
+
+    # write out sidechain reconstructed output
+    samples_with_sidechains.save_xtc(samples_with_sidechains_xtc_path)
+    samples_with_sidechains[0].save_pdb(samples_with_sidechains_pdb_path)
 
     # run MD equilibration if requested
     if md_equil:
@@ -348,9 +350,6 @@ def main(
             samples_with_sidechains, md_protocol, simtime_ns=simtime_ns, outpath=output_dir, energy_eval_budget=energy_eval_budget
         )
 
-        md_equil_xtc_path = os.path.join(output_dir, "md_equil.xtc")
-        md_equil_pdb_path = os.path.join(output_dir, "md_equil.pdb")
-        md_equil_npy_path = os.path.join(output_dir, "md_equil.npy")
 
         samples_equil.save_xtc(md_equil_xtc_path)
         samples_equil[0].save_pdb(md_equil_pdb_path)

@@ -111,7 +111,7 @@ sequence="${sequences[$idx]}"
 
 python -m bioemu.sidechain_relax \
     --input-dir "/network/scratch/t/tanc/bioemu_100/$sequence" \
-    --output-subdir "minimize_only_v3" \
+    --output-subdir "minimize_only" \
     --energy-eval-budget 10_000 \
     --md-protocol local_minimization \
     --reference-pdb-path="/network/scratch/t/tanc/transferable-samplers/many-peptides-md/pdbs/test/${sequence}.pdb"
