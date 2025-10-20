@@ -96,7 +96,10 @@ def reconstruct_sidechains(traj: mdtraj.Trajectory) -> mdtraj.Trajectory:
 
             _run_hpacker(protein_pdb_in, protein_pdb_out)
 
-            reconstructed.append(mdtraj.load_pdb(protein_pdb_out))
+            try:
+                reconstructed.append(mdtraj.load_pdb(protein_pdb_out))
+            except ValueError as e:
+                logger.warning(f"skipping frame {n} due to error loading reconstructed PDB: {e}")
 
     # avoid potential issues if topologies are different or mdtraj has issues infering it
     # from the PDB. Assumes that 0th frame is correct.
