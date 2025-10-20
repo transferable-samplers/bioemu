@@ -5,7 +5,7 @@
 #SBATCH --partition=main-cpu,long-cpu
 #SBATCH -t 12:00:00
 #SBATCH -c 1
-#SBATCH --mem=24G
+#SBATCH --mem=16G
 #SBATCH --array=0-91
 #SBATCH --output=logs/%x_%A_%a.out
 #SBATCH --error=logs/%x_%A_%a.err
