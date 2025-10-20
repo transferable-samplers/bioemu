@@ -5,7 +5,7 @@
 #SBATCH --partition=main-cpu,long-cpu
 #SBATCH -t 12:00:00
 #SBATCH -c 1
-#SBATCH --mem=8G
+#SBATCH --mem=24G
 #SBATCH --array=0-91
 #SBATCH --output=logs/%x_%A_%a.out
 #SBATCH --error=logs/%x_%A_%a.err
@@ -111,7 +111,7 @@ sequence="${sequences[$idx]}"
 
 python -m bioemu.sidechain_relax \
     --input-dir "/network/scratch/t/tanc/bioemu_100/$sequence" \
-    --output-subdir "minimize_only" \
+    --output-subdir "minimize_only_v3" \
     --energy-eval-budget 10_000 \
     --md-protocol local_minimization \
     --reference-pdb-path="/network/scratch/t/tanc/transferable-samplers/many-peptides-md/pdbs/test/${sequence}.pdb"
