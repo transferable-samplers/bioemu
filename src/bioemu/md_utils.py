@@ -90,7 +90,15 @@ def _prepare_system(frame: mdtraj.Trajectory) -> tuple[mm.System, app.Modeller]:
     topology, positions = _add_oxt_to_terminus(frame.top.to_openmm(), frame.xyz[0] * u.nanometers)
 
     modeller = app.Modeller(topology, positions)
-    modeller.addHydrogens()
+
+    # Force every His to be HIE (ε-protonated)
+    variants = []
+    for res in modeller.topology.residues():
+        if res.name in ("HIS", "HID", "HIE", "HIP"):
+            variants.append("HIE")
+        else:
+            variants.append(None)
+    modeller.addHydrogens(variants=variants)
 
     forcefield = app.ForceField("amber14-all.xml", "implicit/obc1.xml")
 

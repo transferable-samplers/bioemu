@@ -17,6 +17,18 @@ def normalize_atom_name(atom_name: str) -> str:
         return "H1"
     return atom_name
 
+def normalize_residue_name(res_name: str) -> str:
+    """
+    Normalize residue names for matching (e.g., HIE, HID, HIP -> HIS).
+
+    Args:
+        res_name (str): Residue name from PDB file.
+
+    Returns:
+        str: Normalized residue name.
+    """
+    return res_name if res_name != "HIS" else "HIE"
+
 def get_atom_list(pdb_file: str) -> List[Tuple[int, str, str]]:
     """
     Return a list of (resSeq, resName, atomName) for each atom in PDB order.
@@ -35,6 +47,7 @@ def get_atom_list(pdb_file: str) -> List[Tuple[int, str, str]]:
         parent = atom.get_parent()
         resSeq = parent.get_id()[1]  # residue number
         resName = parent.get_resname().strip()
+        resName = normalize_residue_name(resName)
         atomName = normalize_atom_name(atom.get_name().strip())
         atoms.append((resSeq, resName, atomName))
     return atoms
