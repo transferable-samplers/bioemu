@@ -341,7 +341,7 @@ def main(
 
     logger.info("Reconstructing side-chains for samples.")
     # reconstruct side-chains
-    samples_with_sidechains = reconstruct_sidechains(samples[0:5])
+    samples_with_sidechains = reconstruct_sidechains(samples)
 
     # write out sidechain reconstructed output
     samples_with_sidechains.save_xtc(samples_with_sidechains_xtc_path)
@@ -352,6 +352,7 @@ def main(
         samples_equil = run_all_md(
             samples_with_sidechains, md_protocol, simtime_ns=simtime_ns, outpath=output_dir, energy_eval_budget=energy_eval_budget
         )
+
 
         samples_equil.save_xtc(md_equil_xtc_path)
         samples_equil[0].save_pdb(md_equil_pdb_path)
